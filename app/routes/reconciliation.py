@@ -66,3 +66,72 @@ def reconciliation_summary(filters: SummaryFilters = Depends()):
         cur.execute(query, params)
         rows = cur.fetchall()
     return {"group_by": filters.group_by, "data": serialize(list(rows))}
+
+@router.get("/reconciliation/discrepancies")
+def reconciliation_discrepancies(filters: DiscrepancyFilters = Depends()):
+    results = {}
+    with get_db() as conn:
+        cur = conn.cursor()
+        if filters.type is None or filters.type == "processed_not_settled":
+            cur.execute("""
+                SELECT t.transaction_id, t.merchant_id, m.merchant_name,
+                       t.amount, t.currency, t.status, t.created_at, t.updated_at,
+                       'processed_not_settled' AS discrepancy_type
+                FROM transactions t
+                JOIN merchants m ON t.merchant_id = m.merchant_id
+                WHERE t.status = 'processed'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM events e
+                      WHERE e.transaction_id = t.transaction_id
+                        AND e.event_type = 'settled'
+                  )
+                ORDER BY t.updated_at DESC
+            """)
+            results["processed_not_settled"] = serialize(cur.fetchall())
+        if filters.type is None or filters.type == "settled_after_failure":
+            cur.execute("""
+                SELECT t.transaction_id, t.merchant_id, m.merchant_name,
+                       t.amount, t.currency, t.status, t.created_at, t.updated_at,
+                       'settled_after_failure' AS discrepancy_type
+                FROM transactions t
+                JOIN merchants m ON t.merchant_id = m.merchant_id
+                WHERE EXISTS (
+                          SELECT 1 FROM events e
+                          WHERE e.transaction_id = t.transaction_id
+                            AND e.event_type = 'settled'
+                      )
+                  AND EXISTS (
+                          SELECT 1 FROM events e
+                          WHERE e.transaction_id = t.transaction_id
+                            AND e.event_type = 'payment_failed'
+                      )
+                ORDER BY t.updated_at DESC
+            """)
+            results["settled_after_failure"] = serialize(cur.fetchall())
+        if filters.type is None or filters.type == "conflicting_states":
+            cur.execute("""
+                SELECT t.transaction_id, t.merchant_id, m.merchant_name,
+                       t.amount, t.currency, t.status, t.created_at, t.updated_at,
+                       'conflicting_states' AS discrepancy_type
+                FROM transactions t
+                JOIN merchants m ON t.merchant_id = m.merchant_id
+                WHERE EXISTS (
+                          SELECT 1 FROM events e
+                          WHERE e.transaction_id = t.transaction_id
+                            AND e.event_type = 'payment_processed'
+                      )
+                  AND EXISTS (
+                          SELECT 1 FROM events e
+                          WHERE e.transaction_id = t.transaction_id
+                            AND e.event_type = 'payment_failed'
+                      )
+                ORDER BY t.updated_at DESC
+            """)
+            results["conflicting_states"] = serialize(cur.fetchall())
+    if filters.type:
+        data = results.get(filters.type, [])
+        return {"type": filters.type, "count": len(data), "data": data}
+    return {
+        "summary": {k: len(v) for k, v in results.items()},
+        "data":    results,
+    }
