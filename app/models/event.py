@@ -5,7 +5,7 @@ class EventIn(BaseModel):
     event_id: UUID4
     event_type: str
     transaction_id: UUID4
-    merchant_id: UUID4
+    merchant_id: str
     merchant_name: str
     amount: float
     currency: str

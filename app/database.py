@@ -34,7 +34,7 @@ def get_db():
         get_pool().putconn(conn)
 
 def init_db():
-    schema_path = os.path.join(os.path.dirname(__file__),"..","db" "schema.sql")
+    schema_path = os.path.join(os.path.dirname(__file__),"..","db","schema.sql")
     with open(schema_path) as f:
         schema = f.read()
     with get_db() as conn:

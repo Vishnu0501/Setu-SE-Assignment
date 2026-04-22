@@ -19,7 +19,8 @@ def ingest_event(event: EventIn):
     
     with get_db() as conn:
         # Idempotency check
-        cur = conn.execute(
+        cur = conn.cursor()
+        cur.execute(
             "SELECT event_id FROM events WHERE event_id = %s",(str(event.event_id),)
         )
         if cur.fetchone():
@@ -42,7 +43,7 @@ def ingest_event(event: EventIn):
             ON CONFLICT (transaction_id) DO UPDATE SET
             status = CASE
                 WHEN transactions.updated_at < EXCLUDED.updated_at
-                THEN EXECLUDED.status
+                THEN EXCLUDED.status
                 ELSE transactions.status
                 
             END,
