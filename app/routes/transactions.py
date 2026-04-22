@@ -54,3 +54,37 @@ def list_transactions(filters: TransactionFilters = Depends()):
             "total_pages": -(-total // filters.page_size),
             }
     }
+
+@router.get("/transactions/{transaction_id}")
+def get_transaction(transaction_id: str):
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT t.*, m.merchant_name
+            FROM transactions t
+            JOIN merchants m ON t.merchant_id = m.merchant_id
+            WHERE t.transaction_id = %s
+            """,
+            (transaction_id,),
+        )
+        txn = cur.fetchone()
+        if not txn:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+
+        cur.execute(
+            """
+            SELECT event_id, event_type, amount, currency, timestamp, received_at
+            FROM events
+            WHERE transaction_id = %s
+            ORDER BY timestamp ASC
+            """,
+            (transaction_id,),
+        )
+        events = cur.fetchall()
+
+    return {
+        **serialize(txn),
+        "events": serialize(list(events)),
+    }
