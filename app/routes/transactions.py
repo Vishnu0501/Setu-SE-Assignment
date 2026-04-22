@@ -1,49 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.models.transaction import TransactionFilters
-from app.database import get_db
-from app.utils import serialize
+from app.database import db
+from app import queries
 
 router = APIRouter()
 
-@router.get("/transactions")
-def list_transactions(filters: TransactionFilters = Depends()):
+
+def _build_list_query(filters: TransactionFilters):
+    """Build parameterized list query from filters. Returns (query_str, params)."""
     where_parts = []
-    params = []
+    params      = []
+    idx         = 1
 
     if filters.merchant_id:
-        where_parts.append("t.merchant_id = %s")
-        params.append(filters.merchant_id)
+        where_parts.append(f"t.merchant_id = ${idx}"); params.append(filters.merchant_id); idx += 1
     if filters.status:
-        where_parts.append("t.status = %s")
-        params.append(filters.status)
+        where_parts.append(f"t.status = ${idx}");      params.append(filters.status);      idx += 1
     if filters.from_date:
-        where_parts.append("t.created_at >= %s")
-        params.append(filters.from_date)
+        where_parts.append(f"t.created_at >= ${idx}"); params.append(filters.from_date);   idx += 1
     if filters.to_date:
-        where_parts.append("t.created_at <= %s")
-        params.append(filters.to_date)
-    
-    where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-    order = f"t.{filters.sort_by} {filters.sort_order.upper()}"
+        where_parts.append(f"t.created_at <= ${idx}"); params.append(filters.to_date);     idx += 1
+
+    where  = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+    order  = f"t.{filters.sort_by} {filters.sort_order.upper()}"
     offset = (filters.page - 1) * filters.page_size
 
     query = f"""
-    SELECT t.*, m.merchant_name, COUNT(*) OVER() AS total_count
-    FROM transactions t
-    JOIN merchants m ON t.merchant_id = m.merchant_id
-   {where}
-    ORDER BY {order}
-    LIMIT %s OFFSET %s
+        {queries.LIST_TRANSACTIONS_BASE}
+        {where}
+        ORDER BY {order}
+        LIMIT ${idx} OFFSET ${idx + 1}
     """
     params += [filters.page_size, offset]
+    return query, params
 
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(query, params)
-        rows = cur.fetchall()
+
+@router.get("/transactions")
+async def list_transactions(filters: TransactionFilters = Depends()):
+    query, params = _build_list_query(filters)
+
+    async with db.acquire() as conn:
+        rows = await conn.fetch(query, *params)
 
     total = int(rows[0]["total_count"]) if rows else 0
-    data  = [serialize({k: v for k, v in row.items() if k != "total_count"}) for row in rows]
+    data  = [{k: v for k, v in dict(row).items() if k != "total_count"} for row in rows]
 
     return {
         "data": data,
@@ -52,39 +52,20 @@ def list_transactions(filters: TransactionFilters = Depends()):
             "page_size":   filters.page_size,
             "total":       total,
             "total_pages": -(-total // filters.page_size),
-            }
+        },
     }
 
-@router.get("/transactions/{transaction_id}")
-def get_transaction(transaction_id: str):
-    with get_db() as conn:
-        cur = conn.cursor()
 
-        cur.execute(
-            """
-            SELECT t.*, m.merchant_name
-            FROM transactions t
-            JOIN merchants m ON t.merchant_id = m.merchant_id
-            WHERE t.transaction_id = %s
-            """,
-            (transaction_id,),
-        )
-        txn = cur.fetchone()
+@router.get("/transactions/{transaction_id}")
+async def get_transaction(transaction_id: str):
+    async with db.acquire() as conn:
+        txn = await conn.fetchrow(queries.GET_TRANSACTION_BY_ID, transaction_id)
         if not txn:
             raise HTTPException(status_code=404, detail="Transaction not found")
 
-        cur.execute(
-            """
-            SELECT event_id, event_type, amount, currency, timestamp, received_at
-            FROM events
-            WHERE transaction_id = %s
-            ORDER BY timestamp ASC
-            """,
-            (transaction_id,),
-        )
-        events = cur.fetchall()
+        events = await conn.fetch(queries.GET_EVENTS_BY_TRANSACTION, transaction_id)
 
     return {
-        **serialize(txn),
-        "events": serialize(list(events)),
+        **dict(txn),
+        "events": [dict(e) for e in events],
     }
