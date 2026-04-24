@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+.venv/
+venv/
+env/
+
+scripts/sample_events.json
+
+*.md
+!README.md
