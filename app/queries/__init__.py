@@ -17,3 +17,8 @@ from app.queries.reconciliation import (
     DISCREPANCY_SETTLED_AFTER_FAILURE,
     DISCREPANCY_CONFLICTING_STATES,
 )
+from app.queries.admin import (
+    UPSERT_MERCHANT_SEED,
+    UPSERT_TRANSACTION_SEED,
+    INSERT_EVENT_SEED,
+)

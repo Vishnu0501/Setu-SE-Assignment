@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.database import db
 from app.response import AppJSONResponse
-from app.routes import events, transactions, reconciliation
+from app.routes import events, transactions, reconciliation, admin
 
 
 @asynccontextmanager
@@ -24,8 +24,13 @@ app = FastAPI(
 app.include_router(events.router,         tags=["Events"])
 app.include_router(transactions.router,   tags=["Transactions"])
 app.include_router(reconciliation.router, tags=["Reconciliation"])
+app.include_router(admin.router,          tags=["Admin"])
 
 
 @app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok"}
+
+@app.get("/")
+def read_root():
+    return {"message": "FastAPI project is running"}
